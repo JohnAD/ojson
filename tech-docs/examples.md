@@ -36,8 +36,8 @@ func main() {
 
     username := doc.Get("user").Get("name").GetString("User name is missing")
     city := doc.Get("location").Get("postal_city").GetString("Location city is missing")
-    fourth := doc.Get("ratings").AtIndex(3, "There is no fourth rating.")
-    ninth := doc.Get("ratings").AtIndex(8, "There is no ninth rating.")
+    fourth := doc.Get("ratings").At(3)
+    ninth := doc.Get("ratings").AtOrDefault(8, ojson.NewString("There is no ninth rating."))
 
     fmt.Println(username) // Larry
     fmt.Println(city)     // Location city is missing
@@ -65,18 +65,18 @@ func main() {
     doc.Set("pet", ojson.NewObject())
     doc.Get("pet").Set("name", ojson.NewString("Whiffles"))
 
-    age, err := ojson.NewNumber("3.2")
+    age, err := ojson.NewNumberTry("3.2")
     if err != nil {
         fmt.Println(err)
         return
     }
 
     doc.Get("pet").Set("age", age)
-    doc.Get("pet").Set("height", ojson.NewNumberTry("21.5"))
+    doc.Get("pet").Set("height", ojson.NewNumber("21.5"))
     doc.Get("pet").Set("height_units", ojson.NewString("inches"))
     doc.Get("pet").Set("safe", ojson.NewBoolean(true))
 
-    fmt.Println(doc.PrettyPrint(2))
+    fmt.Println(doc.ToPrettyJSON(2))
 }
 ```
 
@@ -162,7 +162,7 @@ if err != nil {
     return err
 }
 
-fmt.Println(doc.PrettyPrint(2))
+fmt.Println(doc.ToPrettyJSON(2))
 ```
 
 Expected normalized output:

@@ -40,8 +40,10 @@ These kinds represent the JSON value space plus `Void`, which is an ojson-specif
 `Void`, `Null`, and `nil` are different concepts:
 
 - `Void` means the value does not exist in the JSON document.
-- `Null` means the JSON document explicitly contains `null`.
+- `Null` means the JSON document explicitly contains `null`, which this library treats as an unknown value.
 - `nil` is a Go runtime concept and is not a JSON value.
+
+The meaning of null varies across languages and systems. In ojson, `null` has one project-specific meaning: the field exists, but its value is unknown. It is not the same as absence.
 
 For this JSON document:
 
@@ -52,7 +54,7 @@ For this JSON document:
 }
 ```
 
-The field `a` exists and is a number. The field `c` exists and is null. The field `b` is not present, so a lookup for `b` should produce `Void`.
+The field `a` exists and is a number. The field `c` exists and is unknown. The field `b` is not present, so a lookup for `b` should produce `Void`.
 
 `Void` values are never written to JSON text. They are useful while traversing or editing documents because they let code ask for missing paths without immediately panicking or manufacturing a JSON value that did not exist.
 
@@ -68,6 +70,21 @@ JSON numbers are decimal text. They are not inherently `float64`, `int`, or any 
 - decimal values should not be rounded through binary floating-point conversion
 
 Application code can still convert number strings into `int`, `float64`, decimal packages, or domain-specific numeric types. The conversion decision belongs outside the JSON storage layer.
+
+JSON allows numbers in plain decimal form and in scientific notation. It does not allow a trailing decimal point, so there is no plain-form spelling for a value that is explicitly measured to the nearest one.
+
+For the scalar value 25, these spellings carry different intent:
+
+| JSON text | Meaning | Precision | Precision note |
+| --- | --- | --- | --- |
+| `25` | exact count of 25 | exact | Use for integers and exact counts. |
+| `25.0` | 25 measured to the nearest tenth |  ±0.05  | One digit after the decimal point. |
+| `25.` | 25 measured to the nearest one | ±0.5 | Not valid JSON. |
+| `0.25E2` | 25 measured to the nearest one | ±0.5 | Valid JSON scientific notation with zero decimal places. |
+
+For this reason, values measured to the nearest one should be represented with scientific notation when the precision matters. Use plain integer form only for exact counts.
+
+JSON allows both `e` and `E` for scientific notation. This project prefers uppercase `E` because it is visually clearer and avoids confusion with Euler's number, which is commonly written as `e`.
 
 ## Arrays
 
