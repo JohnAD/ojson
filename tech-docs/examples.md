@@ -127,7 +127,7 @@ Schema:
       "kind": "object",
       "children": [
         { "name": "name", "kind": "string", "required": true },
-        { "name": "age", "kind": "number" },
+        { "name": "age", "kind": "number", "integer": true },
         { "name": "height", "kind": "number", "default": 0 },
         { "name": "height_units", "kind": "string", "default": "inches" },
         { "name": "safe", "kind": "boolean", "default": true }
@@ -144,7 +144,7 @@ Source JSON:
   "pet": {
     "safe": false,
     "name": "Whiffles",
-    "age": 3.2
+    "age": 3
   }
 }
 ```
@@ -171,7 +171,7 @@ Expected normalized output:
 {
   "pet": {
     "name": "Whiffles",
-    "age": 3.2,
+    "age": 3,
     "height": 0,
     "height_units": "inches",
     "safe": false
@@ -180,6 +180,40 @@ Expected normalized output:
 ```
 
 The source field order did not match the schema. After reading, the document uses schema order and includes defaults.
+
+## Build A Schema Programmatically
+
+The same schema can be built with the typed schema builder API.
+
+```go
+schema, err := ojson.NewSchemaObjectBuilder(
+    ojson.Description(ojson.LangEN, "Schema for pet records."),
+).
+    ObjectField("pet", func(pet *ojson.SchemaObjectBuilder) {
+        pet.StringField("name", ojson.Required(), ojson.MinLength(1), ojson.MaxLength(80))
+        pet.NumberField("age", ojson.Integer(), ojson.Min("0"))
+        pet.NumberField("height", ojson.DefaultNumber("0"))
+        pet.StringField(
+            "height_units",
+            ojson.Enum("inches", "centimeters"),
+            ojson.DefaultString("inches"),
+        )
+        pet.BooleanField("safe", ojson.DefaultBool(true))
+    }, ojson.Description(ojson.LangEN, "Information about one pet.")).
+    Build()
+if err != nil {
+    return err
+}
+
+doc, err := ojson.ReadStringWithSchema(jsonText, schema)
+if err != nil {
+    return err
+}
+
+fmt.Println(doc.ToPrettyJSON(2))
+```
+
+Typed builder options help the Go compiler catch incompatible schema options. For example, `StringField("name", ojson.Integer())` should not compile because `Integer` is a number option, not a string option.
 
 ## Required Field Failure
 

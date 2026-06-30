@@ -166,6 +166,8 @@ if err != nil {
 
 Validates a value against a compiled schema without changing the value.
 
+Validation errors should include diagnostic paths using the format described in [`error-paths.md`](error-paths.md).
+
 ```go
 if err := schema.Validate(doc); err != nil {
     return err

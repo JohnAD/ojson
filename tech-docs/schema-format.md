@@ -17,6 +17,8 @@ The root schema does not need a `name` because it is not a field inside a parent
 
 ## Schema Entry Fields
 
+Ojson schemas are tree-shaped. They do not support recursion, references, or reusable object definitions. If the same object shape is needed in multiple places, define that shape inline at each location.
+
 ### `kind`
 
 Required. Defines the JSON kind for the value.
@@ -310,6 +312,8 @@ When JSON is read with a schema:
 
 Source field order is accepted even when it differs from schema order. The stored document uses schema order after normalization.
 
+Validation errors should include diagnostic paths using the format described in [`error-paths.md`](error-paths.md).
+
 ## Write Behavior
 
 When JSON is written after schema-backed editing, serialization should preserve the normalized order already present in memory. The writer should not need to rediscover schema ordering if document mutation already enforces it.
@@ -361,6 +365,7 @@ Keep more advanced concerns in application validation unless the schema format i
 - union types other than nullable
 - arbitrary `any` values
 - object property patterns
+- recursive schemas, references, or reusable definitions
 - enum values for non-string kinds
 - cross-field validation
 

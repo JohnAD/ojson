@@ -21,5 +21,6 @@ This is the index for ojson method and procedure documentation. The API document
 - [`concepts.md`](concepts.md): core data model, ordered objects, `Void`, `Null`, numbers, and arrays.
 - [`schema-format.md`](schema-format.md): schema JSON document structure and behavior.
 - [`schema-builders.md`](schema-builders.md): programmatic schema builder methods and examples.
+- [`error-paths.md`](error-paths.md): diagnostic path format for parse, validation, and conversion errors.
 - [`struct-tags-and-schema.md`](struct-tags-and-schema.md): converting and comparing Go `json` struct tags with ojson schema documents.
 - [`examples.md`](examples.md): practical examples for common workflows.
