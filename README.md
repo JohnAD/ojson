@@ -30,6 +30,7 @@ All other project documentation lives in [`tech-docs/`](tech-docs/).
 - [`tech-docs/methods-common.md`](tech-docs/methods-common.md): shared failure handling, document I/O, state methods, serialization, and schema procedures.
 - [`tech-docs/methods-object.md`](tech-docs/methods-object.md), [`methods-array.md`](tech-docs/methods-array.md), [`methods-string.md`](tech-docs/methods-string.md), [`methods-number.md`](tech-docs/methods-number.md), [`methods-boolean.md`](tech-docs/methods-boolean.md), [`methods-null.md`](tech-docs/methods-null.md), and [`methods-void.md`](tech-docs/methods-void.md): kind-specific method docs.
 - [`tech-docs/schema-format.md`](tech-docs/schema-format.md): schema JSON document format, supported kinds, defaults, required fields, and ordering behavior.
+- [`tech-docs/schema-builders.md`](tech-docs/schema-builders.md): programmatic schema builder methods and examples.
 - [`tech-docs/struct-tags-and-schema.md`](tech-docs/struct-tags-and-schema.md): converting and comparing Go `json` struct tags to and from ojson schema JSON documents.
 - [`tech-docs/examples.md`](tech-docs/examples.md): practical examples for common workflows.
 

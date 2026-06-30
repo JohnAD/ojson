@@ -1,12 +1,14 @@
 # String Methods And Procedures
 
-String values store JSON string content without the surrounding JSON quotes.
+String values store JSON string content without the surrounding JSON quotes. A JSON string is UTF-8 text, not an arbitrary byte array.
 
 See [`methods-common.md`](methods-common.md) for shared failure-handling, state, serialization, document I/O, and schema procedures.
 
 ## `NewString(value string) JSONValue`
 
 Creates a JSON string value.
+
+The input string must contain valid UTF-8. If the string is malformed, `NewString` should return `Void`.
 
 ```go
 name := ojson.NewString("Whiffles")
@@ -28,7 +30,7 @@ empty := ojson.NewEmptyString()
 
 Creates a JSON string value from bytes.
 
-The bytes should be interpreted as UTF-8 text. If the bytes are not valid UTF-8, invalid sequences should be replaced according to Go string conversion behavior.
+The bytes must be valid UTF-8 text. If the bytes are not valid UTF-8, `NewStringFromBytes` should return `Void`. This method must not treat strings as arbitrary byte arrays or silently replace malformed byte sequences.
 
 ```go
 name := ojson.NewStringFromBytes([]byte("Whiffles"))

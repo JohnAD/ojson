@@ -58,43 +58,56 @@ This procedure should:
 3. preserve source object order
 4. return the root `JSONValue`
 
-## Reading Schemas
+## Compiling Schemas
 
-### `ReadSchemaString(schemaText string) (JSONSchema, error)`
+Schemas should be compiled before use.
 
-Reads an ojson schema document from a string.
+A compiled schema is the runtime form of a schema document: parsed, validated, normalized, and ready to apply to one or more JSON documents. Code should avoid reparsing schema JSON for every document.
+
+### `CompileSchemaJSON(schemaText string) (JSONSchema, error)`
+
+Compiles an ojson schema document from a string.
 
 Expected behavior:
 
 - parse the schema as JSON
-- require supported schema fields and kinds
+- validate supported schema fields, kinds, and validation rules
 - preserve child order exactly
+- normalize internal lookup structures for repeated use
 - return an error for malformed schema documents
 
 ```go
-schema, err := ojson.ReadSchemaString(schemaText)
+schema, err := ojson.CompileSchemaJSON(schemaText)
 if err != nil {
     return err
 }
 ```
 
-### `ReadSchemaBytes(schemaBytes []byte) (JSONSchema, error)`
+### `CompileSchemaBytes(schemaBytes []byte) (JSONSchema, error)`
 
-Reads an ojson schema document from bytes.
+Compiles an ojson schema document from bytes.
 
 Use this when schema JSON is already loaded in memory.
 
-### `ReadSchemaFile(path string) (JSONSchema, error)`
+### `CompileSchemaFile(path string) (JSONSchema, error)`
 
-Reads an ojson schema document from a file.
+Compiles an ojson schema document from a file.
 
 Use this for project-managed schema files that define the canonical order for one or more JSON document types.
+
+## Programmatic Schema Builders
+
+Programmatic builders should be available for the two schema roots that commonly need child definitions: objects and arrays. Scalar schemas can be created through builder methods rather than through separate top-level scalar builders.
+
+Use `NewSchemaObjectBuilder` and `NewSchemaArrayBuilder` for programmatic schema construction. Only object and array schema builders should be top-level constructors. Adding top-level builders for every scalar kind would likely add more API surface than clarity.
+
+See [`schema-builders.md`](schema-builders.md) for the full builder method reference and examples.
 
 ## Reading Documents With Schemas
 
 ### `ReadStringWithSchema(jsonText string, schema JSONSchema) (JSONValue, error)`
 
-Reads JSON text and normalizes it through an ojson schema.
+Reads JSON text and normalizes it through a compiled ojson schema.
 
 Expected behavior:
 
@@ -108,15 +121,70 @@ Expected behavior:
 
 ### `ReadBytesWithSchema(jsonBytes []byte, schema JSONSchema) (JSONValue, error)`
 
-Reads JSON bytes and applies a schema.
+Reads JSON bytes and applies a compiled schema.
 
 Use this form when both JSON and schema documents are already available in memory.
 
 ### `ReadFileWithSchema(path string, schema JSONSchema) (JSONValue, error)`
 
-Reads a JSON file and applies a schema loaded from a schema document.
+Reads a JSON file and applies a compiled schema.
 
 Use this procedure for project data files that must conform to a canonical order before being edited or written back.
+
+## Applying And Attaching Schemas
+
+Schema application should be explicit, but the resulting document should remember the schema.
+
+When a document is read with a schema, or when a schema is applied to an existing document, the returned `JSONValue` should be schema-backed. Schema-backed documents should use schema rules for field order, defaults, required fields, nullable fields, and validation during mutation.
+
+### `ApplySchema(schema JSONSchema) (JSONValue, error)`
+
+Applies a compiled schema to an existing `JSONValue`.
+
+Expected behavior:
+
+- validate the document against the schema
+- normalize object fields into schema order
+- insert defaults
+- reject missing required fields without defaults
+- preserve unknown fields after schema-defined fields
+- attach the schema to the returned document
+
+```go
+doc, err := ojson.ReadStringNoSchema(jsonText)
+if err != nil {
+    return err
+}
+
+doc, err = doc.ApplySchema(schema)
+if err != nil {
+    return err
+}
+```
+
+### `Validate(value JSONValue) error`
+
+Validates a value against a compiled schema without changing the value.
+
+```go
+if err := schema.Validate(doc); err != nil {
+    return err
+}
+```
+
+### `Schema() *JSONSchema`
+
+Returns the schema attached to a document, or nil when no schema is attached.
+
+### `HasSchema() bool`
+
+Reports whether a document has an attached schema.
+
+### `WithoutSchema() JSONValue`
+
+Returns a copy of the value without an attached schema.
+
+Use `WithoutSchema` when the caller wants ordinary ordered JSON behavior without schema-backed mutation rules.
 
 ## State Methods
 
@@ -249,7 +317,7 @@ For project data files, prefer pretty output with stable indentation. File-writi
 
 ### Reading With A Schema
 
-1. Load or parse the schema JSON.
+1. Compile or load the schema.
 2. Load or parse the target JSON.
 3. Validate known fields by kind.
 4. Insert defaults.

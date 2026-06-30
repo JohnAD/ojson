@@ -4,7 +4,7 @@ This is the index for ojson method and procedure documentation. The API document
 
 ## Common Behavior
 
-- [`methods-common.md`](methods-common.md): failure handling convention, document reading, schema reading, schema-backed document procedures, state methods, serialization, and schema procedures.
+- [`methods-common.md`](methods-common.md): failure handling convention, document reading, schema compilation, schema builders, schema-backed document procedures, state methods, serialization, and schema procedures.
 
 ## Kind-Specific Methods
 
@@ -20,5 +20,6 @@ This is the index for ojson method and procedure documentation. The API document
 
 - [`concepts.md`](concepts.md): core data model, ordered objects, `Void`, `Null`, numbers, and arrays.
 - [`schema-format.md`](schema-format.md): schema JSON document structure and behavior.
+- [`schema-builders.md`](schema-builders.md): programmatic schema builder methods and examples.
 - [`struct-tags-and-schema.md`](struct-tags-and-schema.md): converting and comparing Go `json` struct tags with ojson schema documents.
 - [`examples.md`](examples.md): practical examples for common workflows.

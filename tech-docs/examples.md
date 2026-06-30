@@ -152,7 +152,7 @@ Source JSON:
 Read procedure:
 
 ```go
-schema, err := ojson.ReadSchemaString(schemaText)
+schema, err := ojson.CompileSchemaJSON(schemaText)
 if err != nil {
     return err
 }

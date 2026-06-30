@@ -1,6 +1,6 @@
 # Schema Format
 
-An ojson schema is a JSON document that describes the expected kind and canonical order of another JSON document. It is intentionally smaller than JSON Schema. Its purpose is ordered document handling, defaults, required fields, and basic kind checking.
+An ojson schema is a JSON document that describes the expected kind and canonical order of another JSON document. It is intentionally smaller than JSON Schema. Its purpose is ordered document handling, defaults, required fields, basic kind checking, and a small set of common scalar validations.
 
 ## Root Schema
 
@@ -30,7 +30,7 @@ Supported values:
 - `boolean`
 - `null`
 
-There is no `any` kind. A value either has a supported kind or it is outside the schema model.
+There is no `any` kind. A value either has a supported kind or it is outside the schema model. The schema also does not support union types, except for nullable fields through `nullable: true`.
 
 ### `name`
 
@@ -44,6 +44,24 @@ The `name` is the JSON object field name:
   "kind": "string"
 }
 ```
+
+### `description-{lang}`
+
+Optional. Provides localized human-readable documentation for any schema entry, including the root schema.
+
+`{lang}` is an ISO 639 language code. The two-letter form is encouraged when it is precise enough, such as `description-en`. Use a more specific language code only when further refinement is needed.
+
+Multiple description languages can be provided on the same schema entry:
+
+```json
+{
+  "kind": "object",
+  "description-en": "A pet record.",
+  "description-es": "Un registro de mascota."
+}
+```
+
+The value must be a string. Any string is allowed, but CommonMark formatting is encouraged for longer descriptions.
 
 ### `children`
 
@@ -91,7 +109,7 @@ Examples by kind:
 ```
 
 ```json
-{ "name": "middle_name", "kind": "null", "default": null }
+{ "name": "middle_name", "kind": "string", "nullable": true, "default": null }
 ```
 
 Object defaults should be used carefully. Prefer child defaults when only specific fields need canonical values.
@@ -110,24 +128,142 @@ Optional. When set to `true`, the field must exist in the source JSON unless a v
 
 If a required field is missing and has no default, reading with the schema should fail.
 
+### `nullable`
+
+Optional. When set to `true`, the field may be explicit JSON `null` in addition to its declared `kind`.
+
+```json
+{
+  "name": "email",
+  "kind": "string",
+  "nullable": true
+}
+```
+
+`nullable` is the only supported union-like behavior. For example, `{ "kind": "string", "nullable": true }` means the value may be a string or `null`. The schema should not support broader unions such as string-or-number.
+
+Defaults for nullable fields must still be valid for the declared `kind` or be `null`.
+
+### `min` And `max`
+
+Optional. Used by number schemas to define inclusive numeric bounds.
+
+```json
+{
+  "name": "age",
+  "kind": "number",
+  "integer": true,
+  "min": 0,
+  "max": 130
+}
+```
+
+`min` and `max` values must be valid JSON numbers. Validation should compare numeric value, not string spelling.
+
+### `integer`
+
+Optional. Used by number schemas. When set to `true`, the number must represent an integer value.
+
+```json
+{
+  "name": "count",
+  "kind": "number",
+  "integer": true
+}
+```
+
+Scientific notation is allowed when it resolves to an integer, such as `1E3`. Decimal spellings with fractional precision, such as `1.5`, should fail integer validation.
+
+### `enum`
+
+Optional. Used by string schemas to restrict the value to one of a fixed set of strings.
+
+```json
+{
+  "name": "status",
+  "kind": "string",
+  "enum": ["draft", "active", "archived"]
+}
+```
+
+`enum` is only supported for strings. It should not be used to model general union types.
+
+### `min_length` And `max_length`
+
+Optional. Used by string schemas to define inclusive string length bounds.
+
+```json
+{
+  "name": "display_name",
+  "kind": "string",
+  "min_length": 1,
+  "max_length": 80
+}
+```
+
+Strings are UTF-8 text, not arbitrary byte arrays. A malformed string cannot be used and should fail schema validation. Length should be measured in Unicode code points, not bytes.
+
+### `format`
+
+Optional. Used by string schemas for a small set of HTML-aligned field validations.
+
+Supported values:
+
+- `email`
+- `tel`
+- `url`
+
+```json
+{
+  "name": "website",
+  "kind": "string",
+  "format": "url"
+}
+```
+
+These formats should be practical validations, not full global truth tests. For example, email validation should reject clearly invalid email field values, but it should not attempt DNS lookup or mailbox verification.
+
+### `items`
+
+Optional. Used by array schemas to describe item type.
+
+```json
+{
+  "name": "tags",
+  "kind": "array",
+  "items": {
+    "kind": "string"
+  }
+}
+```
+
+Array typing is allowed but not required. If `items` is omitted, the array may contain mixed JSON value kinds. If `items` is present, every item must match the item schema. The item schema can use scalar validations such as `min`, `max`, `integer`, `enum`, `min_length`, `max_length`, `format`, and `nullable`.
+
 ## Complete Example
 
 ```json
 {
   "kind": "object",
+  "description-en": "A schema for pet store record of a pet and other meta data.",
   "children": [
     {
       "name": "pet",
       "kind": "object",
+      "description-en": "Information about the pet.",
       "children": [
         {
           "name": "name",
           "kind": "string",
-          "required": true
+          "description-en": "The pet's display name.",
+          "required": true,
+          "min_length": 1,
+          "max_length": 80
         },
         {
           "name": "age",
-          "kind": "number"
+          "kind": "number",
+          "integer": true,
+          "min": 0
         },
         {
           "name": "height",
@@ -137,7 +273,14 @@ If a required field is missing and has no default, reading with the schema shoul
         {
           "name": "height_units",
           "kind": "string",
+          "enum": ["inches", "centimeters"],
           "default": "inches"
+        },
+        {
+          "name": "contact_email",
+          "kind": "string",
+          "format": "email",
+          "nullable": true
         },
         {
           "name": "safe",
@@ -158,10 +301,12 @@ When JSON is read with a schema:
 2. the schema is parsed
 3. known fields are matched by name
 4. known fields are validated against their schema kind
-5. missing fields with defaults are inserted
-6. missing required fields without defaults cause an error
-7. known fields are stored in schema order
-8. unknown fields are preserved after known fields
+5. nullable fields are allowed to contain explicit JSON `null`
+6. scalar validations are applied
+7. missing fields with defaults are inserted
+8. missing required fields without defaults cause an error
+9. known fields are stored in schema order
+10. unknown fields are preserved after known fields
 
 Source field order is accepted even when it differs from schema order. The stored document uses schema order after normalization.
 
@@ -201,17 +346,25 @@ This keeps the schema authoritative without discarding data the application may 
 
 The ojson schema format does not attempt to cover every validation feature from JSON Schema.
 
-Keep these concerns in application validation unless the schema format is intentionally expanded:
+Supported validation is intentionally limited to:
 
-- string formats
+- number `min`, `max`, and `integer`
+- string `enum`
+- string `min_length`, `max_length`, and `format` values of `email`, `tel`, and `url`
+- optional array item schemas through `items`
+- nullable values through `nullable: true`
+
+Keep more advanced concerns in application validation unless the schema format is intentionally expanded:
+
 - regular expressions
-- numeric minimums or maximums
-- array item schemas
-- union types
+- custom string formats beyond `email`, `tel`, and `url`
+- union types other than nullable
 - arbitrary `any` values
 - object property patterns
-- enum values
+- enum values for non-string kinds
 - cross-field validation
+
+The library should never perform cross-field validation. It should also never support general union types beyond `nullable`.
 
 ## Schema Evolution
 
