@@ -309,11 +309,13 @@ if err := doc.Get("ratings").InsertAtTry(2, ojson.NewNumber("7.4")); err != nil 
 }
 ```
 
-## `Remove(index int) JSONValue`
+## `Remove(selector any) JSONValue`
 
 Removes an array item and returns the removed value.
 
-If the receiver is not an array, or if the index is out of range, `Remove` should return `Void`. On success, the item should be removed from the array and the removed value should be returned.
+For arrays, `selector` must be an int index. This keeps the call site simple, such as `ratings.Remove(3)`, while allowing objects to use the same Go method name with a string selector.
+
+If the receiver is not an array, if the selector is not an int, or if the index is out of range, `Remove` should return `Void`. On success, the item should be removed from the array and the removed value should be returned.
 
 ```go
 removed := doc.Get("ratings").Remove(3)
@@ -322,11 +324,11 @@ if removed.IsMissing() {
 }
 ```
 
-## `RemoveTry(index int) (JSONValue, error)`
+## `RemoveTry(selector any) (JSONValue, error)`
 
 Removes an array item and returns the removed value, or an error explaining why removal failed.
 
-If the receiver is not an array, or if the index is out of range, `RemoveTry` should return a `Void` value and an error. On success, it should remove the item and return the removed value with a nil error.
+For arrays, `selector` must be an int index. If the receiver is not an array, if the selector is not an int, or if the index is out of range, `RemoveTry` should return a `Void` value and an error. On success, it should remove the item and return the removed value with a nil error.
 
 ```go
 removed, err := doc.Get("ratings").RemoveTry(3)
@@ -335,11 +337,11 @@ if err != nil {
 }
 ```
 
-## `RemoveOrDefault(index int, defaultValue JSONValue) JSONValue`
+## `RemoveOrDefault(selector any, defaultValue JSONValue) JSONValue`
 
 Removes an array item and returns the removed value, or returns the caller-provided default when removal fails.
 
-If the receiver is not an array, or if the index is out of range, `RemoveOrDefault` should return the default value. On success, it should remove the item and return the removed value.
+For arrays, `selector` must be an int index. If the receiver is not an array, if the selector is not an int, or if the index is out of range, `RemoveOrDefault` should return the default value. On success, it should remove the item and return the removed value.
 
 ```go
 removed := doc.Get("ratings").RemoveOrDefault(8, ojson.NewString("There is no ninth rating."))

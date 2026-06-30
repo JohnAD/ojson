@@ -73,7 +73,7 @@ package main
 import (
     "fmt"
 
-    "https://github.com/JohnAD/ojson"
+    "github.com/JohnAD/ojson"
 )
 
 func main() {
@@ -111,7 +111,7 @@ package main
 import (
     "fmt"
 
-    "https://github.com/JohnAD/ojson"
+    "github.com/JohnAD/ojson"
 )
 
 func main() {

@@ -13,6 +13,404 @@ Struct-tag/schema tooling should help answer four questions:
 - Do my Go field types map to the schema kinds?
 - Can a schema JSON document be used to suggest Go field declarations and tags?
 
+## Methods And Procedures
+
+The procedures in this document are intended for tooling, code generation, and project checks. They should not be required for ordinary JSON reading and writing.
+
+These APIs should use the same failure-handling convention as the rest of ojson:
+
+- plain methods return a useful empty result or `Void` on failure
+- `*Try` methods return a result and an `error`
+- comparison methods return a structured report, because mismatches are expected data rather than exceptional failures
+
+## Shared Option Types
+
+### `StructSchemaOption`
+
+Configures struct/schema conversion and comparison behavior.
+
+```go
+type StructSchemaOption interface {
+    applyStructSchemaOption(*structSchemaConfig)
+}
+```
+
+The exact config struct should remain internal. Options should cover naming policy, required-field policy, numeric-type policy, and map handling.
+
+### `RequireExplicitJSONTags() StructSchemaOption`
+
+Requires every included struct field to have an explicit `json` tag name.
+
+If this option is active, fields without explicit `json` names should produce an error in conversion procedures and a finding in comparison procedures. This is the recommended default for schema generation because it avoids guessing between Go field names and project JSON naming conventions.
+
+### `AllowDefaultFieldNames() StructSchemaOption`
+
+Allows fields without an explicit `json` tag name to use the Go field name.
+
+This option should be used only when a project intentionally wants Go field names to become JSON field names.
+
+### `RequiredFromNonOmitEmpty() StructSchemaOption`
+
+Treats included fields without `omitempty` as `required: true` when converting from a struct to a schema.
+
+This is a project policy, not a universal Go rule. A non-`omitempty` field in a struct does not prove that the JSON document must contain the field in every context.
+
+### `OptionalPointers() StructSchemaOption`
+
+Treats pointer fields as optional for comparison and generation.
+
+Pointer optionality should not change the schema `kind`. For example, `*string` still maps to `kind: "string"`, but the field may be considered optional by policy.
+
+### `AllowMapObjects() StructSchemaOption`
+
+Allows `map[string]T` to map to `kind: "object"` when generating or comparing schemas.
+
+Because Go maps do not preserve field order, this option should produce a warning unless the schema entry is intentionally unordered or has no fixed `children`.
+
+### `DecimalType(typeName string) StructSchemaOption`
+
+Registers a project-specific decimal type that should map to schema `kind: "number"`.
+
+Examples might include `decimal.Decimal`, `shopspring.Decimal`, or an internal money/decimal type. The string should use the package-qualified type name expected by the tooling.
+
+### `NumberType(typeName string) StructSchemaOption`
+
+Registers a project-specific numeric type that should map to schema `kind: "number"`.
+
+Use this for custom integer, float, or JSON-number wrapper types that are known to serialize as JSON numbers.
+
+## Struct Inspection Result Types
+
+### `StructSchemaField`
+
+Represents one included Go struct field after `json` tag parsing and type mapping.
+
+```go
+type StructSchemaField struct {
+    GoName       string
+    JSONName     string
+    SchemaKind   JSONKind
+    Optional     bool
+    OmitEmpty    bool
+    GoType       string
+    Path         Path
+    Children     []StructSchemaField
+    Item         *StructSchemaField
+    Findings     []StructSchemaFinding
+}
+```
+
+`Path` should use the ojson diagnostic path format. For nested structs, paths should refer to the JSON field path, such as `"pet"."name"`.
+
+### `InspectStructTags(value any, opts ...StructSchemaOption) []StructSchemaField`
+
+Inspects a struct value, pointer to a struct, or `reflect.Type` for a struct and returns included fields in declaration order.
+
+If inspection fails, the plain procedure should return an empty slice. Use `InspectStructTagsTry` when tooling needs the reason.
+
+```go
+fields := ojson.InspectStructTags(Pet{})
+```
+
+### `InspectStructTagsTry(value any, opts ...StructSchemaOption) ([]StructSchemaField, error)`
+
+Inspects a struct value, pointer to a struct, or `reflect.Type` for a struct and returns a detailed error when inspection cannot continue.
+
+Expected failures include:
+
+- `value` is not a struct or pointer to a struct
+- required explicit `json` tags are missing
+- a field type is unsupported
+- an embedded field creates an ambiguous JSON name
+- a recursive type is detected
+
+```go
+fields, err := ojson.InspectStructTagsTry(Pet{}, ojson.RequireExplicitJSONTags())
+if err != nil {
+    return err
+}
+```
+
+## Struct To Schema Procedures
+
+### `NewSchemaFromStruct(value any, opts ...StructSchemaOption) JSONValue`
+
+Creates a schema JSON document from a Go struct value, pointer to a struct, or `reflect.Type` for a struct.
+
+The plain procedure should return `Void` when conversion fails. On success it should return a `KindObject` value representing the schema JSON document, not a compiled `JSONSchema`.
+
+```go
+schemaDoc := ojson.NewSchemaFromStruct(Pet{})
+fmt.Println(schemaDoc.ToPrettyJSON(2))
+```
+
+Returning `JSONValue` keeps this procedure focused on schema document generation. Callers that need a compiled schema can call `CompileSchemaJSON(schemaDoc.ToJSON())` or use `CompileSchemaFromStructTry`.
+
+### `NewSchemaFromStructTry(value any, opts ...StructSchemaOption) (JSONValue, error)`
+
+Creates a schema JSON document from a Go struct value, pointer to a struct, or `reflect.Type` for a struct, or returns an error explaining why conversion failed.
+
+The generated schema should:
+
+- use root `kind: "object"`
+- preserve struct declaration order as `children` order
+- use parsed `json` tag names as schema `name` values
+- map supported Go types to schema `kind`
+- recurse into nested structs
+- use `items` for slices and arrays when the item kind can be inferred
+- omit defaults unless supplied by explicit tooling configuration
+- include `required: true` only when enabled by policy
+
+```go
+schemaDoc, err := ojson.NewSchemaFromStructTry(Pet{}, ojson.RequiredFromNonOmitEmpty())
+if err != nil {
+    return err
+}
+```
+
+### `NewSchemaFromStructOrDefault(value any, defaultValue JSONValue, opts ...StructSchemaOption) JSONValue`
+
+Creates a schema JSON document from a Go struct value, pointer to a struct, or `reflect.Type` for a struct, or returns `defaultValue` when conversion fails.
+
+Use this only for display or recovery paths. Build tooling should prefer `NewSchemaFromStructTry`.
+
+### `CompileSchemaFromStructTry(value any, opts ...StructSchemaOption) (JSONSchema, error)`
+
+Creates and compiles a schema from a Go struct value, pointer to a struct, or `reflect.Type` for a struct.
+
+This is a convenience procedure equivalent to:
+
+```go
+schemaDoc, err := ojson.NewSchemaFromStructTry(value, opts...)
+if err != nil {
+    return ojson.JSONSchema{}, err
+}
+
+return ojson.CompileSchemaJSON(schemaDoc.ToJSON())
+```
+
+Use this when the schema will immediately be used with `ReadStringWithSchema`, `ApplySchema`, or `Validate`.
+
+## Schema To Struct Procedures
+
+### `StructSuggestion`
+
+Represents generated Go struct code plus review notes.
+
+```go
+type StructSuggestion struct {
+    TypeName string
+    Code     string
+    Imports  []string
+    Notes    []StructSchemaFinding
+}
+```
+
+The generated `Code` should contain the suggested type declaration only. Required imports should be listed separately in `Imports` so caller tools can merge them into an existing file or render a complete standalone source file.
+
+The suggested code should be a starting point, not a claim that all project-specific type decisions are solved.
+
+### `NewStructSuggestionFromSchema(schema JSONSchema, typeName string, opts ...StructSchemaOption) StructSuggestion`
+
+Creates a suggested Go struct definition from a compiled schema.
+
+If generation fails, the plain procedure should return an empty `StructSuggestion` with findings when possible. Use `NewStructSuggestionFromSchemaTry` for strict tooling.
+
+```go
+suggestion := ojson.NewStructSuggestionFromSchema(schema, "Pet")
+fmt.Println(suggestion.Code)
+```
+
+### `NewStructSuggestionFromSchemaTry(schema JSONSchema, typeName string, opts ...StructSchemaOption) (StructSuggestion, error)`
+
+Creates a suggested Go struct definition from a compiled schema, or returns an error when the schema cannot be converted.
+
+Expected behavior:
+
+- require an object root schema
+- preserve schema child order as struct field order
+- generate exported Go field names from schema names
+- emit `json` tags for every generated field
+- map schema `number` to `json.Number` by default
+- map nullable scalar fields to pointers when configured by policy
+- recurse into object children
+- generate slice types from array `items` when possible
+- add review notes for defaults, required fields, nullable fields, and unsupported schema metadata
+
+```go
+suggestion, err := ojson.NewStructSuggestionFromSchemaTry(schema, "Pet")
+if err != nil {
+    return err
+}
+```
+
+For this schema:
+
+```json
+{
+  "kind": "object",
+  "children": [
+    { "name": "name", "kind": "string", "required": true },
+    { "name": "age", "kind": "number" },
+    { "name": "safe", "kind": "boolean", "default": true }
+  ]
+}
+```
+
+The returned `suggestion.Code` should contain the full Go source string for the suggested type:
+
+```go
+type Pet struct {
+    Name string      `json:"name"`
+    Age  json.Number `json:"age,omitempty"`
+    Safe bool        `json:"safe,omitempty"`
+}
+```
+
+The source string should include struct tags. It should not include imports.
+
+For this example, the returned `suggestion.Imports` should contain:
+
+```go
+[]string{"encoding/json"}
+```
+
+Separating imports from code keeps the API useful for utilities that insert generated types into existing source files and manage imports themselves.
+
+For a schema with nested objects and arrays of objects:
+
+```json
+{
+  "kind": "object",
+  "children": [
+    {
+      "name": "pet",
+      "kind": "object",
+      "children": [
+        { "name": "name", "kind": "string", "required": true },
+        { "name": "age", "kind": "number" }
+      ]
+    },
+    {
+      "name": "search_results",
+      "kind": "array",
+      "items": {
+        "kind": "object",
+        "children": [
+          { "name": "id", "kind": "string", "required": true },
+          { "name": "score", "kind": "number" }
+        ]
+      }
+    }
+  ]
+}
+```
+
+Calling `NewStructSuggestionFromSchemaTry(schema, "SearchResponse")` should return `suggestion.Code` with multiple struct declarations:
+
+```go
+type SearchResponse struct {
+    Pet           Pet            `json:"pet,omitempty"`
+    SearchResults []SearchResult `json:"search_results,omitempty"`
+}
+
+type Pet struct {
+    Name string      `json:"name"`
+    Age  json.Number `json:"age,omitempty"`
+}
+
+type SearchResult struct {
+    Id    string      `json:"id"`
+    Score json.Number `json:"score,omitempty"`
+}
+```
+
+The returned `suggestion.Imports` should still contain `[]string{"encoding/json"}` because both `Pet.Age` and `SearchResult.Score` use `json.Number`.
+
+### `NewStructSuggestionFromSchemaJSONTry(schemaText string, typeName string, opts ...StructSchemaOption) (StructSuggestion, error)`
+
+Parses schema JSON text and returns a suggested Go struct definition.
+
+This is a convenience procedure for command-line tools and code generators that operate directly on schema files.
+
+## Comparison Procedures
+
+### `StructSchemaFinding`
+
+Represents one comparison finding or review note.
+
+```go
+type StructSchemaFinding struct {
+    Category string
+    Path     Path
+    Message  string
+    GoType   string
+    GoName   string
+    JSONName string
+}
+```
+
+`Category` should use stable strings so tools can filter and fail builds by finding type.
+
+Recommended categories:
+
+- `missing_in_schema`
+- `missing_in_struct`
+- `order_mismatch`
+- `kind_mismatch`
+- `unsupported_go_type`
+- `unsupported_schema_feature`
+- `default_only_in_schema`
+- `required_policy_difference`
+- `ambiguous_json_name`
+- `recursive_type`
+
+### `StructSchemaReport`
+
+Represents the full comparison result.
+
+```go
+type StructSchemaReport struct {
+    OK       bool
+    Findings []StructSchemaFinding
+}
+```
+
+`OK` should be `true` only when there are no findings that the selected policy treats as failures. Informational notes may still be present if the report has severity levels in a later version.
+
+### `CompareStructToSchema(value any, schema JSONSchema, opts ...StructSchemaOption) StructSchemaReport`
+
+Compares a Go struct value, pointer to a struct, or `reflect.Type` for a struct to a compiled ojson schema.
+
+Comparison should not return an error for ordinary mismatches. Mismatches are the report's purpose. If the struct cannot be inspected or the schema root is incompatible, the report should contain findings that describe the problem.
+
+```go
+report := ojson.CompareStructToSchema(Pet{}, schema)
+if !report.OK {
+    for _, finding := range report.Findings {
+        fmt.Println(finding.Path, finding.Category, finding.Message)
+    }
+}
+```
+
+### `CompareStructToSchemaTry(value any, schema JSONSchema, opts ...StructSchemaOption) (StructSchemaReport, error)`
+
+Compares a Go struct value, pointer to a struct, or `reflect.Type` for a struct to a compiled schema, returning an error only when comparison cannot run at all.
+
+Use errors for invalid inputs such as a non-struct `value` or an empty `JSONSchema`. Use report findings for semantic mismatches such as order, kind, missing fields, or unsupported metadata.
+
+### `CompareStructToSchemaJSONTry(value any, schemaText string, opts ...StructSchemaOption) (StructSchemaReport, error)`
+
+Compiles schema JSON text and compares it to a Go struct value, pointer to a struct, or `reflect.Type` for a struct.
+
+This is the preferred entry point for command-line tools that check a struct against a schema file.
+
+### `CompareStructToSchemaFileTry(value any, schemaPath string, opts ...StructSchemaOption) (StructSchemaReport, error)`
+
+Compiles a schema JSON file and compares it to a Go struct value, pointer to a struct, or `reflect.Type` for a struct.
+
+This procedure should include file read and schema compilation errors directly. Struct/schema mismatches should still be returned as `StructSchemaReport` findings.
+
 ## Struct Field Selection
 
 When converting a Go struct to an ojson schema:

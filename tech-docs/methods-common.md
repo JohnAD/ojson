@@ -304,7 +304,9 @@ data := doc.ToPrettyJSONBytes(2)
 
 Writes JSON text to a file.
 
-For project data files, prefer pretty output with stable indentation. File-writing procedures should avoid rewriting files when content has not changed if the surrounding application wants to minimize file modification timestamps.
+`WriteFile` writes the same output as `ToPrettyJSON(2)`.
+
+For project data files, prefer pretty output with stable indentation. Applications that need a different indentation policy can call `ToJSONBytes` or `ToPrettyJSONBytes` and write the file themselves.
 
 ## Schema Procedures
 

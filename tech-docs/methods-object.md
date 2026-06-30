@@ -263,11 +263,13 @@ if err := doc.Get("pet").SetTry("name", ojson.NewString("Whiffles")); err != nil
 }
 ```
 
-## `Remove(key string) JSONValue`
+## `Remove(selector any) JSONValue`
 
 Removes an object field and returns the removed value.
 
-If the receiver is not an object, if the key does not exist, or if the stored field value is `Void`, `Remove` should return `Void`. On success, the field should be removed from the object and the removed value should be returned.
+For objects, `selector` must be a string key. This keeps the call site simple, such as `doc.Remove("name")`, while allowing arrays to use the same Go method name with an integer selector.
+
+If the receiver is not an object, if the selector is not a string, if the key does not exist, or if the stored field value is `Void`, `Remove` should return `Void`. On success, the field should be removed from the object and the removed value should be returned.
 
 Removal should produce absence, not JSON `null`. Use `Set(key, NewNull())` when the field should remain present with an unknown value.
 
@@ -278,11 +280,11 @@ if removed.IsMissing() {
 }
 ```
 
-## `RemoveTry(key string) (JSONValue, error)`
+## `RemoveTry(selector any) (JSONValue, error)`
 
 Removes an object field and returns the removed value, or an error explaining why removal failed.
 
-If the receiver is not an object, if the key does not exist, or if the stored field value is `Void`, `RemoveTry` should return a `Void` value and an error. On success, it should remove the field and return the removed value with a nil error.
+For objects, `selector` must be a string key. If the receiver is not an object, if the selector is not a string, if the key does not exist, or if the stored field value is `Void`, `RemoveTry` should return a `Void` value and an error. On success, it should remove the field and return the removed value with a nil error.
 
 ```go
 removed, err := doc.Get("pet").RemoveTry("name")
