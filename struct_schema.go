@@ -20,6 +20,8 @@ type structSchemaConfig struct {
 	optionalPointers        bool
 	allowMapObjects         bool
 	numberTypes             map[string]struct{}
+	formatTypes             map[reflect.Type]string
+	formats                 *StringFormatRegistry
 }
 
 func newStructSchemaConfig(opts ...StructSchemaOption) structSchemaConfig {
@@ -27,6 +29,7 @@ func newStructSchemaConfig(opts ...StructSchemaOption) structSchemaConfig {
 		requireExplicitJSONTags: true,
 		optionalPointers:        true,
 		numberTypes:             map[string]struct{}{},
+		formatTypes:             map[reflect.Type]string{},
 	}
 	for _, opt := range opts {
 		opt.applyStructSchemaOption(&cfg)
@@ -98,10 +101,45 @@ func (o numberTypeOption) applyStructSchemaOption(cfg *structSchemaConfig) {
 	cfg.numberTypes[string(o)] = struct{}{}
 }
 
+type stringFormatTypeOption struct {
+	goType reflect.Type
+	format string
+}
+
+// StringFormatType maps a Go type to a string schema format during struct inspection.
+func StringFormatType(goType reflect.Type, format StringFormat) StructSchemaOption {
+	return stringFormatTypeOption{goType: goType, format: string(format)}
+}
+
+func (o stringFormatTypeOption) applyStructSchemaOption(cfg *structSchemaConfig) {
+	if o.goType == nil || o.format == "" {
+		return
+	}
+	typ := o.goType
+	for typ.Kind() == reflect.Pointer {
+		typ = typ.Elem()
+	}
+	cfg.formatTypes[typ] = o.format
+}
+
+type structStringFormatsOption struct {
+	registry *StringFormatRegistry
+}
+
+// StructStringFormats supplies a format registry when compiling schemas from structs.
+func StructStringFormats(registry *StringFormatRegistry) StructSchemaOption {
+	return structStringFormatsOption{registry: registry}
+}
+
+func (o structStringFormatsOption) applyStructSchemaOption(cfg *structSchemaConfig) {
+	cfg.formats = o.registry
+}
+
 type StructSchemaField struct {
 	GoName     string
 	JSONName   string
 	SchemaKind JSONKind
+	Format     string
 	Optional   bool
 	OmitEmpty  bool
 	GoType     string
@@ -180,11 +218,16 @@ func NewSchemaFromStructOrDefault(value any, defaultValue JSONValue, opts ...Str
 }
 
 func CompileSchemaFromStructTry(value any, opts ...StructSchemaOption) (JSONSchema, error) {
+	cfg := newStructSchemaConfig(opts...)
 	schemaDoc, err := NewSchemaFromStructTry(value, opts...)
 	if err != nil {
 		return JSONSchema{}, err
 	}
-	return CompileSchemaJSON(schemaDoc.ToJSON())
+	compileOpts := []SchemaCompileOption{}
+	if cfg.formats != nil {
+		compileOpts = append(compileOpts, WithStringFormats(cfg.formats))
+	}
+	return CompileSchemaJSON(schemaDoc.ToJSON(), compileOpts...)
 }
 
 func NewStructSuggestionFromSchema(schema JSONSchema, typeName string, opts ...StructSchemaOption) StructSuggestion {
@@ -222,10 +265,14 @@ func NewStructSuggestionFromSchemaTry(schema JSONSchema, typeName string, opts .
 	if formatted, err := format.Source([]byte(code)); err == nil {
 		code = string(formatted)
 	}
-	imports := []string{}
+	imports := make([]string, 0, len(generator.imports)+1)
 	if generator.usesJSONNumber {
 		imports = append(imports, "encoding/json")
 	}
+	for pkg := range generator.imports {
+		imports = append(imports, pkg)
+	}
+	sort.Strings(imports)
 
 	return StructSuggestion{
 		TypeName: exportedGoName(typeName),
@@ -381,6 +428,7 @@ func inspectStructType(typ reflect.Type, cfg structSchemaConfig, path Path, seen
 			GoName:     field.Name,
 			JSONName:   jsonName,
 			SchemaKind: mapped.SchemaKind,
+			Format:     mapped.Format,
 			Optional:   optional,
 			OmitEmpty:  omitEmpty,
 			GoType:     field.Type.String(),
@@ -425,6 +473,11 @@ func inspectGoType(typ reflect.Type, cfg structSchemaConfig, path Path, seen map
 		SchemaKind: KindVoid,
 		GoType:     typ.String(),
 		Path:       path,
+	}
+	if format, ok := cfg.formatTypes[typ]; ok {
+		field.SchemaKind = KindString
+		field.Format = format
+		return field, nil, nil
 	}
 	if isConfiguredNumberType(typ, cfg) || isJSONNumberType(typ) {
 		field.SchemaKind = KindNumber
@@ -522,6 +575,9 @@ func schemaFromStructField(field StructSchemaField, cfg structSchemaConfig) JSON
 	schemaDoc := NewObject()
 	schemaDoc.Set("name", NewString(field.JSONName))
 	schemaDoc.Set("kind", NewString(schemaKindName(field.SchemaKind)))
+	if field.Format != "" {
+		schemaDoc.Set("format", NewString(field.Format))
+	}
 	if cfg.requiredFromNonOmit && !field.Optional {
 		schemaDoc.Set("required", NewBoolean(true))
 	}
@@ -535,6 +591,9 @@ func schemaFromStructField(field StructSchemaField, cfg structSchemaConfig) JSON
 	if field.SchemaKind == KindArray && field.Item != nil && field.Item.SchemaKind != KindVoid {
 		itemSchema := NewObject()
 		itemSchema.Set("kind", NewString(schemaKindName(field.Item.SchemaKind)))
+		if field.Item.Format != "" {
+			itemSchema.Set("format", NewString(field.Item.Format))
+		}
 		if field.Item.SchemaKind == KindObject && len(field.Item.Children) > 0 {
 			children := NewArray()
 			for _, child := range field.Item.Children {
@@ -552,11 +611,13 @@ type structSuggestionGenerator struct {
 	definitions    []string
 	notes          []StructSchemaFinding
 	usesJSONNumber bool
+	imports        map[string]struct{}
 }
 
 func newStructSuggestionGenerator() *structSuggestionGenerator {
 	return &structSuggestionGenerator{
 		usedNames: map[string]int{},
+		imports:   map[string]struct{}{},
 	}
 }
 
@@ -612,6 +673,9 @@ func (g *structSuggestionGenerator) structFieldsCode(entries []*schemaEntry, pat
 func (g *structSuggestionGenerator) goTypeForSchemaEntry(entry *schemaEntry, suggestedName string, path Path) string {
 	switch entry.Kind {
 	case KindString:
+		if entry.formatGoType != nil {
+			return g.goTypeName(entry.formatGoType, entry.Nullable)
+		}
 		if entry.Nullable {
 			return "*string"
 		}
@@ -648,6 +712,28 @@ func (g *structSuggestionGenerator) goTypeForSchemaEntry(entry *schemaEntry, sug
 		g.notes = append(g.notes, StructSchemaFinding{Category: "unsupported_schema_feature", Path: path, Message: "unsupported schema kind"})
 		return "any"
 	}
+}
+
+func (g *structSuggestionGenerator) goTypeName(typ reflect.Type, nullable bool) string {
+	for typ.Kind() == reflect.Pointer {
+		typ = typ.Elem()
+		nullable = true
+	}
+	name := typ.Name()
+	if name == "" {
+		name = typ.String()
+	} else if pkg := typ.PkgPath(); pkg != "" {
+		g.imports[pkg] = struct{}{}
+		if last := strings.LastIndex(pkg, "/"); last >= 0 {
+			name = pkg[last+1:] + "." + name
+		} else {
+			name = pkg + "." + name
+		}
+	}
+	if nullable {
+		return "*" + name
+	}
+	return name
 }
 
 func singularGoName(name string) string {

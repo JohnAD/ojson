@@ -64,7 +64,7 @@ Schemas should be compiled before use.
 
 A compiled schema is the runtime form of a schema document: parsed, validated, normalized, and ready to apply to one or more JSON documents. Code should avoid reparsing schema JSON for every document.
 
-### `CompileSchemaJSON(schemaText string) (JSONSchema, error)`
+### `CompileSchemaJSON(schemaText string, opts ...SchemaCompileOption) (JSONSchema, error)`
 
 Compiles an ojson schema document from a string.
 
@@ -75,25 +75,28 @@ Expected behavior:
 - preserve child order exactly
 - normalize internal lookup structures for repeated use
 - return an error for malformed schema documents
+- accept an optional `WithStringFormats(registry)` compile option for custom string formats
 
 ```go
-schema, err := ojson.CompileSchemaJSON(schemaText)
+schema, err := ojson.CompileSchemaJSON(schemaText, ojson.WithStringFormats(formats))
 if err != nil {
     return err
 }
 ```
 
-### `CompileSchemaBytes(schemaBytes []byte) (JSONSchema, error)`
+### `CompileSchemaBytes(schemaBytes []byte, opts ...SchemaCompileOption) (JSONSchema, error)`
 
 Compiles an ojson schema document from bytes.
 
 Use this when schema JSON is already loaded in memory.
 
-### `CompileSchemaFile(path string) (JSONSchema, error)`
+### `CompileSchemaFile(path string, opts ...SchemaCompileOption) (JSONSchema, error)`
 
 Compiles an ojson schema document from a file.
 
 Use this for project-managed schema files that define the canonical order for one or more JSON document types.
+
+Compiled schemas expose a read-only entry view through `schema.Root()`, with `Child`, `Children`, `Items`, `Kind`, `Format`, and `Custom` accessors. `Custom()` returns a clone of opaque metadata, or Void when absent.
 
 ## Programmatic Schema Builders
 

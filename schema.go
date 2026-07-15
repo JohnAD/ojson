@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"net/url"
 	"os"
+	"reflect"
 	"regexp"
 	"strings"
 )
@@ -12,6 +13,11 @@ import (
 // JSONSchema is the compiled runtime form of an ojson schema document.
 type JSONSchema struct {
 	root *schemaEntry
+}
+
+// SchemaEntry is a read-only view of a compiled schema entry.
+type SchemaEntry struct {
+	entry *schemaEntry
 }
 
 type schemaEntry struct {
@@ -40,6 +46,11 @@ type schemaEntry struct {
 	MinLength *int
 	MaxLength *int
 	Format    string
+
+	formatValidator StringFormatValidator
+	formatGoType    reflect.Type
+
+	Custom JSONValue
 }
 
 // Kind returns the root schema kind.
@@ -50,17 +61,88 @@ func (s JSONSchema) Kind() JSONKind {
 	return s.root.Kind
 }
 
-func CompileSchemaJSON(schemaText string) (JSONSchema, error) {
-	return CompileSchemaBytes([]byte(schemaText))
+// Root returns a read-only view of the compiled root schema entry.
+func (s JSONSchema) Root() SchemaEntry {
+	return SchemaEntry{entry: s.root}
 }
 
-func CompileSchemaBytes(schemaBytes []byte) (JSONSchema, error) {
+// Valid reports whether the schema entry view refers to a compiled entry.
+func (e SchemaEntry) Valid() bool {
+	return e.entry != nil
+}
+
+// Name returns the schema entry name, or an empty string for the root.
+func (e SchemaEntry) Name() string {
+	if e.entry == nil {
+		return ""
+	}
+	return e.entry.Name
+}
+
+// Kind returns the schema entry kind.
+func (e SchemaEntry) Kind() JSONKind {
+	if e.entry == nil {
+		return KindVoid
+	}
+	return e.entry.Kind
+}
+
+// Format returns the string format name, if any.
+func (e SchemaEntry) Format() string {
+	if e.entry == nil {
+		return ""
+	}
+	return e.entry.Format
+}
+
+// Custom returns a clone of opaque custom metadata, or Void when absent.
+func (e SchemaEntry) Custom() JSONValue {
+	if e.entry == nil || e.entry.Custom.IsVoid() {
+		return NewVoid()
+	}
+	return cloneJSONValue(e.entry.Custom)
+}
+
+// Child returns the named object child schema entry, if present.
+func (e SchemaEntry) Child(name string) SchemaEntry {
+	if e.entry == nil {
+		return SchemaEntry{}
+	}
+	return SchemaEntry{entry: e.entry.childByName[name]}
+}
+
+// Children returns object child schema entries in schema order.
+func (e SchemaEntry) Children() []SchemaEntry {
+	if e.entry == nil || len(e.entry.Children) == 0 {
+		return nil
+	}
+	children := make([]SchemaEntry, 0, len(e.entry.Children))
+	for _, child := range e.entry.Children {
+		children = append(children, SchemaEntry{entry: child})
+	}
+	return children
+}
+
+// Items returns the array item schema entry, if present.
+func (e SchemaEntry) Items() SchemaEntry {
+	if e.entry == nil {
+		return SchemaEntry{}
+	}
+	return SchemaEntry{entry: e.entry.Items}
+}
+
+func CompileSchemaJSON(schemaText string, opts ...SchemaCompileOption) (JSONSchema, error) {
+	return CompileSchemaBytes([]byte(schemaText), opts...)
+}
+
+func CompileSchemaBytes(schemaBytes []byte, opts ...SchemaCompileOption) (JSONSchema, error) {
 	value, err := ReadBytesNoSchema(schemaBytes)
 	if err != nil {
 		return JSONSchema{}, err
 	}
 
-	root, err := compileSchemaEntry(value, RootPath(), false)
+	cfg := newSchemaCompileConfig(opts...)
+	root, err := compileSchemaEntry(value, RootPath(), false, cfg)
 	if err != nil {
 		return JSONSchema{}, err
 	}
@@ -68,16 +150,16 @@ func CompileSchemaBytes(schemaBytes []byte) (JSONSchema, error) {
 	return JSONSchema{root: root}, nil
 }
 
-func CompileSchemaFile(path string) (JSONSchema, error) {
+func CompileSchemaFile(path string, opts ...SchemaCompileOption) (JSONSchema, error) {
 	schemaBytes, err := os.ReadFile(path)
 	if err != nil {
 		return JSONSchema{}, err
 	}
 
-	return CompileSchemaBytes(schemaBytes)
+	return CompileSchemaBytes(schemaBytes, opts...)
 }
 
-func compileSchemaEntry(value JSONValue, path Path, requireName bool) (*schemaEntry, error) {
+func compileSchemaEntry(value JSONValue, path Path, requireName bool, cfg schemaCompileConfig) (*schemaEntry, error) {
 	if !value.IsObject() {
 		return nil, pathError(path, "schema entry must be an object")
 	}
@@ -89,6 +171,7 @@ func compileSchemaEntry(value JSONValue, path Path, requireName bool) (*schemaEn
 	entry := &schemaEntry{
 		Descriptions: make(map[string]string),
 		childByName:  make(map[string]*schemaEntry),
+		Custom:       NewVoid(),
 	}
 
 	if requireName {
@@ -136,14 +219,14 @@ func compileSchemaEntry(value JSONValue, path Path, requireName bool) (*schemaEn
 			if entry.Kind != KindObject {
 				return nil, pathError(path, "children is only supported for object schemas")
 			}
-			if err := compileChildren(entry, field.Value, path); err != nil {
+			if err := compileChildren(entry, field.Value, path, cfg); err != nil {
 				return nil, err
 			}
 		case "items":
 			if entry.Kind != KindArray {
 				return nil, pathError(path, "items is only supported for array schemas")
 			}
-			itemSchema, err := compileSchemaEntry(field.Value, path, false)
+			itemSchema, err := compileSchemaEntry(field.Value, path, false, cfg)
 			if err != nil {
 				return nil, err
 			}
@@ -210,10 +293,11 @@ func compileSchemaEntry(value JSONValue, path Path, requireName bool) (*schemaEn
 			if err != nil {
 				return nil, err
 			}
-			if !isSupportedStringFormat(format) {
-				return nil, pathError(path, "unsupported string format %q", format)
+			if err := resolveStringFormat(entry, format, path, cfg); err != nil {
+				return nil, err
 			}
-			entry.Format = format
+		case "custom":
+			entry.Custom = cloneJSONValue(field.Value)
 		default:
 			if strings.HasPrefix(field.Key, "description-") {
 				lang := strings.TrimPrefix(field.Key, "description-")
@@ -236,6 +320,24 @@ func compileSchemaEntry(value JSONValue, path Path, requireName bool) (*schemaEn
 	return entry, nil
 }
 
+func resolveStringFormat(entry *schemaEntry, format string, path Path, cfg schemaCompileConfig) error {
+	if format == "" {
+		return pathError(path, "string format must not be empty")
+	}
+	if isBuiltinStringFormat(format) {
+		entry.Format = format
+		return nil
+	}
+	def, ok := cfg.formats.lookup(format)
+	if !ok {
+		return pathError(path, "unsupported string format %q", format)
+	}
+	entry.Format = format
+	entry.formatValidator = def.validator
+	entry.formatGoType = def.goType
+	return nil
+}
+
 func validateSchemaFields(value JSONValue, path Path) error {
 	for _, field := range value.node.objectValue {
 		if isKnownSchemaField(field.Key) || strings.HasPrefix(field.Key, "description-") {
@@ -248,7 +350,7 @@ func validateSchemaFields(value JSONValue, path Path) error {
 
 func isKnownSchemaField(key string) bool {
 	switch key {
-	case "kind", "name", "children", "default", "required", "nullable", "min", "max", "integer", "enum", "min_length", "max_length", "format", "items":
+	case "kind", "name", "children", "default", "required", "nullable", "min", "max", "integer", "enum", "min_length", "max_length", "format", "items", "custom":
 		return true
 	default:
 		return false
@@ -274,7 +376,7 @@ func schemaKindFromString(kind string) (JSONKind, error) {
 	}
 }
 
-func compileChildren(entry *schemaEntry, value JSONValue, path Path) error {
+func compileChildren(entry *schemaEntry, value JSONValue, path Path, cfg schemaCompileConfig) error {
 	if !value.IsArray() {
 		return pathError(path, "children must be an array")
 	}
@@ -286,7 +388,7 @@ func compileChildren(entry *schemaEntry, value JSONValue, path Path) error {
 			childProbePath = path
 		}
 
-		child, err := compileSchemaEntry(childValue, childProbePath, true)
+		child, err := compileSchemaEntry(childValue, childProbePath, true, cfg)
 		if err != nil {
 			return err
 		}
@@ -425,7 +527,16 @@ func validateStringValueAgainstSchema(value string, entry *schemaEntry, path Pat
 			return pathError(path, "string is not in enum")
 		}
 	}
-	if entry.Format != "" && !matchesStringFormat(value, entry.Format) {
+	if entry.Format == "" {
+		return nil
+	}
+	if entry.formatValidator != nil {
+		if err := entry.formatValidator.ValidateString(value); err != nil {
+			return pathError(path, "invalid %s format: %v", entry.Format, err)
+		}
+		return nil
+	}
+	if !matchesStringFormat(value, entry.Format) {
 		return pathError(path, "invalid %s format", entry.Format)
 	}
 	return nil
@@ -448,21 +559,6 @@ func validateNumberValueAgainstSchema(value JSONValue, entry *schemaEntry, path 
 	return nil
 }
 
-func isSupportedStringFormat(format string) bool {
-	switch format {
-	case "email", "tel", "url":
-		return true
-	default:
-		return false
-	}
-}
-
-var languageCodePattern = regexp.MustCompile(`^[A-Za-z]{2,3}(-[A-Za-z0-9]+)*$`)
-
-func isLanguageCode(value string) bool {
-	return languageCodePattern.MatchString(value)
-}
-
 func matchesStringFormat(value string, format string) bool {
 	switch format {
 	case "email":
@@ -475,4 +571,10 @@ func matchesStringFormat(value string, format string) bool {
 	default:
 		return false
 	}
+}
+
+var languageCodePattern = regexp.MustCompile(`^[A-Za-z]{2,3}(-[A-Za-z0-9]+)*$`)
+
+func isLanguageCode(value string) bool {
+	return languageCodePattern.MatchString(value)
 }

@@ -168,13 +168,15 @@ schema, err := ojson.NewSchemaObjectBuilder().
     Build()
 ```
 
-### `Build() (JSONSchema, error)`
+### `Build(opts ...SchemaCompileOption) (JSONSchema, error)`
 
 Validates and compiles the schema.
 
 `Build` should fail when the builder contains invalid field names, duplicate field names, invalid defaults, unsupported validation combinations, malformed number constraints, unsupported formats, or invalid nested schemas.
 
-### `MustBuild() JSONSchema`
+Pass `WithStringFormats(registry)` when the schema uses custom string formats.
+
+### `MustBuild(opts ...SchemaCompileOption) JSONSchema`
 
 Validates and compiles the schema, panicking on error.
 
@@ -239,13 +241,15 @@ schema, err := ojson.NewSchemaArrayBuilder().
 
 Defines array items as booleans.
 
-### `Build() (JSONSchema, error)`
+### `Build(opts ...SchemaCompileOption) (JSONSchema, error)`
 
 Validates and compiles the schema.
 
 For arrays, `Build` should verify that any item schema is valid. If no item schema was provided, the compiled schema should allow mixed item kinds.
 
-### `MustBuild() JSONSchema`
+Pass `WithStringFormats(registry)` when the schema uses custom string formats.
+
+### `MustBuild(opts ...SchemaCompileOption) JSONSchema`
 
 Validates and compiles the schema, panicking on error.
 
@@ -278,6 +282,43 @@ This option should be available for object, array, string, number, and boolean s
 Sets a default value.
 
 This option should be available for object and array schemas. Scalar builders should prefer typed default helpers.
+
+### `Custom(value JSONValue)`
+
+Attaches opaque application metadata.
+
+This option should be available for object, array, string, number, and boolean schemas. `ojson` preserves the value and does not interpret it.
+
+```go
+meta := ojson.NewObject()
+meta.Set("indexed", ojson.NewBoolean(true))
+ojson.Custom(meta)
+```
+
+### `CustomString(value string)`
+
+Attaches opaque string metadata.
+
+```go
+ojson.CustomString("application-specific note")
+```
+
+## String Format Registries
+
+Custom string formats are registered in an application-owned registry and supplied when compiling a schema:
+
+```go
+formats := ojson.NewStringFormatRegistry()
+if err := formats.Register("Time", timeValidator, reflect.TypeOf(time.Time{})); err != nil {
+    return err
+}
+
+schema, err := ojson.NewSchemaObjectBuilder().
+    StringField("released_at", ojson.Format(ojson.StringFormat("Time"))).
+    Build(ojson.WithStringFormats(formats))
+```
+
+The same registry can compile many schemas. A schema may use zero or many formats from that one registry. Built-in formats do not require registration.
 
 ## String Options
 

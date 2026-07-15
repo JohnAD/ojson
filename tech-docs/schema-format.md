@@ -207,9 +207,9 @@ Strings are UTF-8 text, not arbitrary byte arrays. A malformed string cannot be 
 
 ### `format`
 
-Optional. Used by string schemas for a small set of HTML-aligned field validations.
+Optional. Used by string schemas for HTML-aligned built-in validations and application-registered semantic formats.
 
-Supported values:
+Built-in values:
 
 - `email`
 - `tel`
@@ -224,6 +224,35 @@ Supported values:
 ```
 
 These formats should be practical validations, not full global truth tests. For example, email validation should reject clearly invalid email field values, but it should not attempt DNS lookup or mailbox verification.
+
+Applications may also register custom formats through an explicit `StringFormatRegistry` supplied when compiling a schema. Custom format names conventionally begin with an uppercase letter, such as `Time`, but uppercase is a convention rather than a parser requirement. Built-in names `email`, `tel`, and `url` remain reserved.
+
+When a schema uses a custom format:
+
+1. the format must be present in the registry supplied to that schema compilation
+2. the registry validator is snapshotted into the compiled schema
+3. later registry mutations do not change already compiled schemas
+4. string defaults and document values are validated through the registered validator
+
+### `custom`
+
+Optional. Provides opaque application metadata for any schema entry, including the root.
+
+`custom` may contain any JSON value. `ojson` preserves the value when compiling schemas and does not interpret it. Applications can use `custom` for project-specific policy or tooling metadata without requiring `ojson` to understand that metadata.
+
+```json
+{
+  "name": "director",
+  "kind": "string",
+  "format": "DatoriumDirectRef",
+  "custom": {
+    "collection": "people",
+    "indexed": true
+  }
+}
+```
+
+Unknown schema fields other than `custom` and supported `description-{lang}` keys should still be rejected. A single known `custom` field keeps typo detection intact while still allowing arbitrary extension data.
 
 ### `items`
 
@@ -354,7 +383,8 @@ Supported validation is intentionally limited to:
 
 - number `min`, `max`, and `integer`
 - string `enum`
-- string `min_length`, `max_length`, and `format` values of `email`, `tel`, and `url`
+- string `min_length`, `max_length`, and `format` values of `email`, `tel`, `url`, or an application-registered format
+- optional opaque metadata through `custom`
 - optional array item schemas through `items`
 - nullable values through `nullable: true`
 

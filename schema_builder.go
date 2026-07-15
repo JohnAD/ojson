@@ -194,30 +194,30 @@ func (b *SchemaArrayBuilder) BooleanItems(opts ...BooleanOption) *SchemaArrayBui
 	return b
 }
 
-func (b *SchemaObjectBuilder) Build() (JSONSchema, error) {
+func (b *SchemaObjectBuilder) Build(opts ...SchemaCompileOption) (JSONSchema, error) {
 	if err := b.entry.firstBuildError(); err != nil {
 		return JSONSchema{}, err
 	}
-	return CompileSchemaJSON(b.entry.toJSONValue(true).ToJSON())
+	return CompileSchemaJSON(b.entry.toJSONValue(true).ToJSON(), opts...)
 }
 
-func (b *SchemaObjectBuilder) MustBuild() JSONSchema {
-	schema, err := b.Build()
+func (b *SchemaObjectBuilder) MustBuild(opts ...SchemaCompileOption) JSONSchema {
+	schema, err := b.Build(opts...)
 	if err != nil {
 		panic(err)
 	}
 	return schema
 }
 
-func (b *SchemaArrayBuilder) Build() (JSONSchema, error) {
+func (b *SchemaArrayBuilder) Build(opts ...SchemaCompileOption) (JSONSchema, error) {
 	if err := b.entry.firstBuildError(); err != nil {
 		return JSONSchema{}, err
 	}
-	return CompileSchemaJSON(b.entry.toJSONValue(true).ToJSON())
+	return CompileSchemaJSON(b.entry.toJSONValue(true).ToJSON(), opts...)
 }
 
-func (b *SchemaArrayBuilder) MustBuild() JSONSchema {
-	schema, err := b.Build()
+func (b *SchemaArrayBuilder) MustBuild(opts ...SchemaCompileOption) JSONSchema {
+	schema, err := b.Build(opts...)
 	if err != nil {
 		panic(err)
 	}
@@ -360,6 +360,44 @@ func Default(value JSONValue) defaultOption {
 
 func (o defaultOption) applyObject(entry *schemaBuilderEntry) { entry.fields["default"] = o.value }
 func (o defaultOption) applyArray(entry *schemaBuilderEntry)  { entry.fields["default"] = o.value }
+
+type customOption struct {
+	value JSONValue
+}
+
+func Custom(value JSONValue) customOption {
+	return customOption{value: value}
+}
+
+func (o customOption) applyObject(entry *schemaBuilderEntry)  { entry.fields["custom"] = o.value }
+func (o customOption) applyArray(entry *schemaBuilderEntry)   { entry.fields["custom"] = o.value }
+func (o customOption) applyString(entry *schemaBuilderEntry)  { entry.fields["custom"] = o.value }
+func (o customOption) applyNumber(entry *schemaBuilderEntry)  { entry.fields["custom"] = o.value }
+func (o customOption) applyBoolean(entry *schemaBuilderEntry) { entry.fields["custom"] = o.value }
+
+type customStringOption struct {
+	value string
+}
+
+func CustomString(value string) customStringOption {
+	return customStringOption{value: value}
+}
+
+func (o customStringOption) applyObject(entry *schemaBuilderEntry) {
+	entry.fields["custom"] = NewString(o.value)
+}
+func (o customStringOption) applyArray(entry *schemaBuilderEntry) {
+	entry.fields["custom"] = NewString(o.value)
+}
+func (o customStringOption) applyString(entry *schemaBuilderEntry) {
+	entry.fields["custom"] = NewString(o.value)
+}
+func (o customStringOption) applyNumber(entry *schemaBuilderEntry) {
+	entry.fields["custom"] = NewString(o.value)
+}
+func (o customStringOption) applyBoolean(entry *schemaBuilderEntry) {
+	entry.fields["custom"] = NewString(o.value)
+}
 
 type defaultNullOption struct{}
 

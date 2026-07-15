@@ -144,7 +144,7 @@ schemaDoc := ojson.NewSchemaFromStruct(Pet{})
 fmt.Println(schemaDoc.ToPrettyJSON(2))
 ```
 
-Returning `JSONValue` keeps this procedure focused on schema document generation. Callers that need a compiled schema can call `CompileSchemaJSON(schemaDoc.ToJSON())` or use `CompileSchemaFromStructTry`.
+Returning `JSONValue` keeps this procedure focused on schema document generation. Callers that need a compiled schema can call `CompileSchemaJSON(schemaDoc.ToJSON(), opts...)` or use `CompileSchemaFromStructTry` with `StructStringFormats` when custom formats are present.
 
 ### `NewSchemaFromStructTry(value any, opts ...StructSchemaOption) (JSONValue, error)`
 
@@ -619,12 +619,35 @@ Default reverse mapping:
 
 | Schema kind | Suggested Go type | Notes |
 | --- | --- | --- |
-| `string` | `string` | Direct mapping. |
+| `string` | `string` | Direct mapping, unless a registered format associates a Go type. |
 | `number` | `json.Number` | Preserves decimal text better than `float64`. |
 | `boolean` | `bool` | Direct mapping. |
 | `object` | nested struct | Generate a named or anonymous struct by policy. |
-| `array` | `[]ojson.JSONValue` or project type | Item kind is not fully described by the base schema model. |
+| `array` | `[]T` | Item type follows the item schema when present. |
 | `null` | `*struct{}` or `any` by policy | Usually needs human review. |
+
+### String Format Type Mapping
+
+Applications can associate Go types with string formats for both struct-to-schema generation and schema-to-struct suggestions.
+
+```go
+formats := ojson.NewStringFormatRegistry()
+_ = formats.Register("Time", timeValidator, reflect.TypeOf(time.Time{}))
+
+schema, err := ojson.NewSchemaFromStructTry(
+    Movie{},
+    ojson.StringFormatType(reflect.TypeOf(time.Time{}), "Time"),
+)
+```
+
+When suggesting structs from a compiled schema, use the format's associated Go type when available:
+
+```text
+kind: string, format: Time -> time.Time
+kind: string, format: email -> string
+```
+
+If the associated type comes from another package, add its import path to `StructSuggestion.Imports`. Runtime conversion continues to use named-string handling and Go's `json.Marshaler`, `json.Unmarshaler`, `encoding.TextMarshaler`, and `encoding.TextUnmarshaler` interfaces.
 
 Example schema:
 
