@@ -186,6 +186,15 @@ func (v JSONValue) WithoutSchema() JSONValue {
 	return clone
 }
 
+// Clone returns a deep copy of the value, preserving any attached schema.
+func (v JSONValue) Clone() JSONValue {
+	clone := cloneJSONValue(v)
+	if v.node != nil && v.node.schema != nil {
+		attachSchema(clone, v.node.schema, v.node.schemaEntry)
+	}
+	return clone
+}
+
 func cloneJSONValue(value JSONValue) JSONValue {
 	switch value.Kind() {
 	case KindObject:

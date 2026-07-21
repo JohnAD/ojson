@@ -34,6 +34,7 @@ All other project documentation lives in [`tech-docs/`](tech-docs/).
 - [`tech-docs/error-paths.md`](tech-docs/error-paths.md): diagnostic path format for parse, validation, and conversion errors.
 - [`tech-docs/struct-tags-and-schema.md`](tech-docs/struct-tags-and-schema.md): converting and comparing Go `json` struct tags to and from ojson schema JSON documents.
 - [`tech-docs/examples.md`](tech-docs/examples.md): practical examples for common workflows.
+- [`tech-docs/patch.md`](tech-docs/patch.md): schema-aware RFC6902 apply, diff, validate, typed paths, and wire format.
 
 ## Core Model
 

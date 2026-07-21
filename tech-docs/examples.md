@@ -380,3 +380,59 @@ age: json.Number is suggested; choose a project numeric type if needed
 ```
 
 Schema-to-struct generation is a starting point, not a perfect reconstruction of the intended Go model.
+
+## Schema-Aware RFC6902 Patching
+
+### Path 1: mutate, then diff
+
+```go
+before, err := ojson.ReadStringWithSchema(`{"name":"Whiffles","age":3}`, schema)
+if err != nil {
+    return err
+}
+after := before.Clone()
+after.Set("age", ojson.NewNumberFromInt(4))
+
+patch, err := ojson.Diff(before, after, ojson.WithPatchSchema(schema))
+if err != nil {
+    return err
+}
+fmt.Println(patch.ToJSON())
+```
+
+For typed documents:
+
+```go
+patch, err := ojson.DiffStructs(beforeMovie, afterMovie, ojson.WithPatchSchema(schema))
+updated, err := ojson.ApplyPatchToStruct(beforeMovie, patch, ojson.WithPatchSchema(schema))
+```
+
+### Path 2: hand-built ops and validate
+
+```go
+patch, err := ojson.NewPatch(
+    ojson.PatchReplace("/age", ojson.NewNumberFromInt(4)),
+    ojson.PatchAdd("/tags/-", ojson.NewString("fast")),
+)
+if err != nil {
+    return err
+}
+if err := ojson.ValidatePatch(doc, patch, ojson.WithPatchSchema(schema)); err != nil {
+    return err
+}
+result, err := ojson.ApplyPatch(doc, patch, ojson.WithPatchSchema(schema))
+```
+
+### Generated typed paths
+
+```go
+//go:generate go run github.com/JohnAD/ojson/cmd/ojson-paths -type Movie
+
+op, err := ojson.ReplaceAt(MoviePaths.Title, "Dune")
+if err != nil {
+    return err
+}
+patch, err := ojson.NewPatch(op)
+```
+
+See [`patch.md`](patch.md) for pointer escaping, schema precedence, default restoration, and atomic apply semantics.

@@ -24,3 +24,4 @@ This is the index for ojson method and procedure documentation. The API document
 - [`error-paths.md`](error-paths.md): diagnostic path format for parse, validation, and conversion errors.
 - [`struct-tags-and-schema.md`](struct-tags-and-schema.md): converting and comparing Go `json` struct tags with ojson schema documents.
 - [`examples.md`](examples.md): practical examples for common workflows.
+- [`patch.md`](patch.md): schema-aware RFC6902 patch apply, diff, validate, typed helpers, and generated paths.

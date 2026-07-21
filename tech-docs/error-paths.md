@@ -101,6 +101,16 @@ When an error is caused by an out-of-range array index, the path should include 
 "ratings".8: array index out of range
 ```
 
+## Patch Errors
+
+RFC6902 failures use `PatchError` and include an operation index plus the RFC6901 pointer when available. The ojson diagnostic path remains in parentheses when useful:
+
+```text
+patch op 2 at /tags/0 ("tags".0): test failed
+patch op 1 at /name ("name"): path does not exist
+patch op 1: schema normalization failed: "name": required field is missing
+```
+
 ## Implementation Notes
 
 Path rendering should reuse JSON string escaping for object field segments. This keeps paths readable while preserving exact field names.
